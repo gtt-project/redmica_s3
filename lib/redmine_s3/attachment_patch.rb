@@ -150,7 +150,6 @@ module RedmineS3
 
         unless new_digest == object.metadata['digest']
           object.copy_from(object,
-            acl:                  'public-read',
             content_disposition:  object.content_disposition,
             content_type:         object.content_type,
             metadata:             object.metadata.merge({'digest' => new_digest}),
@@ -166,6 +165,7 @@ module RedmineS3
       private
 
       def reuse_existing_file_if_possible
+        object = self.s3_object
         reused = with_lock do
           if existing = Attachment
                           .where(digest: self.digest, filesize: self.filesize)
@@ -174,7 +174,7 @@ module RedmineS3
                           .first
             existing.with_lock do
               if self.readable? && existing.readable? &&
-                self.s3_object.metadata['digest'] == existing.s3_object.metadata['digest']
+                object.metadata['digest'] == existing.s3_object.metadata['digest']
 
                 self.update_columns disk_directory: existing.disk_directory,
                                     disk_filename: existing.disk_filename
@@ -183,7 +183,7 @@ module RedmineS3
           end
         end
         if reused
-          self.s3_object.delete
+          object.delete
         end
       rescue ActiveRecord::StatementInvalid, ActiveRecord::RecordNotFound
         # Catch and ignore lock errors. It is not critical if deduplication does
@@ -204,6 +204,10 @@ module RedmineS3
           thumbnail_path('*').sub(/\*\.thumb$/, '')
         )
       end
+    end
+
+    def raw_data
+      self.s3_object.get.body.read
     end
 
   protected
